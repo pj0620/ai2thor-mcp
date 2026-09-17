@@ -9,6 +9,9 @@
       "type": "debugpy",
       "request": "launch",
       "program": "python/ai2thor_mcp/main.py",
+      "args": [
+        "--http"
+      ],
       "console": "integratedTerminal",
       "justMyCode": false
     },

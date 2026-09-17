@@ -1,0 +1,27 @@
+{
+  "agent": {
+    "name": "agent",
+    "position": {
+      "x": -1.0,
+      "y": 0.9009996652603149,
+      "z": 2.0
+    },
+    "rotation": {
+      "x": 0.0,
+      "y": 180.0,
+      "z": 0.0
+    },
+    "cameraHorizon": -0.0,
+    "isStanding": null,
+    "inHighFrictionArea": false
+  },
+  "cameraPosition": {
+    "x": -1.0,
+    "y": 0.8697996735572815,
+    "z": 2.0
+  },
+  "screenWidth": 500,
+  "screenHeight": 500,
+  "fov": 60.0,
+  "sceneName": "FloorPlan2_physics"
+}

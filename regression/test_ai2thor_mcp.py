@@ -7,6 +7,7 @@ import pytest
 from fastmcp import Client
 from ai2thor_mcp.main import mcp
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_mcp_server_options() -> None:
     async with Client(mcp) as client:
