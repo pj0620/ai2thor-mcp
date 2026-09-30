@@ -1,6 +1,6 @@
 import argparse
 import io
-from typing import Any, Dict, Union
+from typing import Any, Dict, Literal, Union
 
 import numpy as np
 from fastmcp import FastMCP
@@ -11,6 +11,8 @@ from PIL import Image as PILImage
 
 from ai2thor_mcp import config
 from ai2thor_mcp.annotate import annotate_view
+from ai2thor_mcp.freecam import FreeCamera, FreeCameraError
+from ai2thor_mcp.mapping import OccupancyMapper
 from ai2thor_mcp.describe import (
     DestinationRegistry,
     describe_object,
@@ -21,13 +23,18 @@ from ai2thor_mcp.nav import NavManager
 from ai2thor_mcp.perception import detect_passages, intrinsics_from_metadata
 from ai2thor_mcp.recorder import OverheadRecorder, RecorderError
 from ai2thor_mcp.sim import Sim
-from ai2thor_mcp.utils import MapOverlays, generate_top_view
+from ai2thor_mcp.utils import MapOverlays
 
 SIM = Sim()
 REGISTRY = DestinationRegistry()
 NAV = NavManager(SIM)
 RECORDER = OverheadRecorder()
 SIM.attach_recorder(RECORDER)
+FREECAM = FreeCamera()
+MAPPER = OccupancyMapper()
+SIM.attach_mapper(MAPPER)
+
+CAMERA_PRESET = Literal["chase", "front", "top"]
 
 
 def _describe_action(action: Union[str, Dict[str, Any]]) -> str:
@@ -280,8 +287,10 @@ def list_destinations() -> dict:
 
 @mcp.tool()
 def get_map() -> Image:
-    """Gets a top-down map: scene objects, robot pose (red triangle), remaining
-    planned path (yellow), known destinations (dots), and the active goal (star)."""
+    """Gets the top-down occupancy map the robot has built from its depth camera at camera
+    height, like a lidar SLAM map: unexplored grey, free space white, obstacles black. Overlaid:
+    robot pose (red triangle), remaining planned path (yellow), known destinations (dots), and
+    the active goal (star). Unexplored areas fill in as the robot looks around and drives."""
     event = SIM.last_event()
     pose = SIM.peek_pose()
     overlays = MapOverlays(
@@ -291,7 +300,7 @@ def get_map() -> Image:
         destinations=REGISTRY.list(),
         goal_target=NAV.goal_target(),
     )
-    top_view = generate_top_view(event.metadata, overlays)
+    top_view = MAPPER.render(overlays, meta=event.metadata)
     return _image_from(top_view, "PNG")
 
 
@@ -379,6 +388,65 @@ def do_rotate(action: ROTATE_ACTION, degrees: float = 90.0):
     if preempted:
         message += " (preempted active navigation)"
     return message
+
+
+# --- simulator-only free camera (not part of the robot contract) -----------------------------
+
+
+def _freecam_result(pose, frame):
+    return [_image_from(PILImage.fromarray(frame), "JPEG"), pose.as_dict()]
+
+
+@mcp.tool(output_schema=None)
+def sim_camera_view():
+    """Simulator only: the free camera's current frame (JPEG) and pose.
+
+    The free camera is a user-controlled third-party camera for watching the robot from
+    anywhere in the room. It is created at a chase viewpoint on first use. Not part of the
+    robot contract; robot brains must not use it.
+    """
+    try:
+        FREECAM.ensure(SIM)
+        frame = FREECAM.frame(SIM)
+    except FreeCameraError as exc:
+        raise ToolError(str(exc))
+    return _freecam_result(FREECAM.pose, frame)
+
+
+@mcp.tool(output_schema=None)
+def sim_camera_move(
+    forward: float = 0.0,
+    right: float = 0.0,
+    up: float = 0.0,
+    yaw: float = 0.0,
+    pitch: float = 0.0,
+    zoom: float = 0.0,
+):
+    """Simulator only: fly the free camera and return its new frame (JPEG) and pose.
+
+    Args:
+        forward, right, up: metres, relative to where the camera looks (forward/right stay
+            level; up is world-vertical). Height is clamped to the room.
+        yaw, pitch: degrees to turn (yaw) and tilt (pitch, positive looks down).
+        zoom: degrees of field of view to remove (positive zooms in).
+    """
+    try:
+        pose, frame = FREECAM.move(SIM, forward=forward, right=right, up=up, yaw=yaw, pitch=pitch, zoom=zoom)
+    except FreeCameraError as exc:
+        raise ToolError(str(exc))
+    return _freecam_result(pose, frame)
+
+
+@mcp.tool(output_schema=None)
+def sim_camera_reset(mode: CAMERA_PRESET = "chase"):
+    """Simulator only: jump the free camera to a preset relative to the robot and return the
+    frame (JPEG) and pose. Presets: "chase" (behind and above, looking at the robot), "front"
+    (in front, looking back at it), "top" (straight down)."""
+    try:
+        pose, frame = FREECAM.reset(SIM, mode)
+    except (FreeCameraError, ValueError) as exc:
+        raise ToolError(str(exc))
+    return _freecam_result(pose, frame)
 
 
 if __name__ == "__main__":

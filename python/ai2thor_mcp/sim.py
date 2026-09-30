@@ -32,10 +32,15 @@ class Sim:
         self.scene_override: Optional[str] = None
         self._reachable_xz: Optional[np.ndarray] = None
         self._recorder = None
+        self._mapper = None
 
     def attach_recorder(self, recorder) -> None:
         """Wire an OverheadRecorder; set once at startup, not hot-swapped."""
         self._recorder = recorder
+
+    def attach_mapper(self, mapper) -> None:
+        """Wire an OccupancyMapper whose on_step hook integrates every rendered depth frame."""
+        self._mapper = mapper
 
     def _controller_kwargs(self) -> Dict[str, Any]:
         kwargs = {
@@ -79,6 +84,11 @@ class Sim:
                     event = self._recorder.on_step(controller, event)
                 except Exception:
                     logger.exception("Overhead recorder hook failed; continuing")
+            if self._mapper is not None:
+                try:
+                    self._mapper.on_step(event)
+                except Exception:
+                    logger.exception("Occupancy mapper hook failed; continuing")
             self._last_event = event
             return event
 
